@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>외국인 4구간 연속 순매수</title>
+<style>
+:root{--bd:#ddd;--bg:#f3f3f3;--tx:#202124;--mut:#666}
+*{box-sizing:border-box}
+body{margin:0;font:13px/1.45 Arial,"Malgun Gothic",sans-serif;color:var(--tx);background:#fff}
+header{padding:10px 12px;border-bottom:1px solid var(--bd)}
+h1{font-size:16px;margin:0 0 4px}
+.sub{color:var(--mut);font-size:12px}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+select,button,input{font:inherit;padding:4px 8px;border:1px solid var(--bd);border-radius:4px;background:#fff}
+button{cursor:pointer}
+.wrap{overflow:auto;max-height:calc(100vh - 150px)}
+table{border-collapse:separate;border-spacing:0;min-width:100%}
+th,td{border-bottom:1px solid var(--bd);padding:4px 7px;white-space:nowrap;text-align:right;background:#fff}
+th{position:sticky;top:0;background:var(--bg);z-index:3;cursor:pointer;text-align:center;font-weight:700;white-space:normal;min-width:64px}
+th.on{background:#d7e8ff}
+td.l,th.l{text-align:left}
+td.news{white-space:normal;min-width:380px;max-width:520px;text-align:left;vertical-align:top;font-size:12px}
+th:nth-child(2),td:nth-child(2){position:sticky;left:0;z-index:2;background:inherit}
+th:nth-child(2){z-index:4;background:var(--bg)}
+td:nth-child(2){background:#fff;font-weight:700;text-align:left}
+td.pos{color:#c62828}td.neg{color:#1565c0}
+.v-지속{background:#c6efce!important}.v-지속·과열{background:#ffd8a8!important}.v-둔화{background:#fff2b3!important}.v-횡보{background:#e0e0e0!important}.v-꺾임{background:#f8c9c9!important}
+#pop{position:fixed;display:none;z-index:10;background:#fff;border:1px solid #aaa;border-radius:6px;box-shadow:0 4px 14px #0003;width:230px;padding:8px}
+#pop .list{max-height:240px;overflow:auto;border:1px solid var(--bd);margin:6px 0;padding:4px}
+#pop label{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#pop .row{display:flex;gap:6px;justify-content:space-between;margin-top:4px}
+#pop input[type=text]{width:100%}
+details{padding:6px 12px;font-size:12px;color:var(--mut)}
+</style>
+</head>
+<body>
+<header>
+<h1>외국인 4구간 연속 순매수 <span id="cnt" class="sub"></span></h1>
+<div class="sub" id="meta"></div>
+<div class="bar">
+<label>기준일 <select id="date"></select></label>
+<button id="clear">필터 해제</button>
+<span class="sub">헤더를 누르면 엑셀처럼 정렬·값 필터</span>
+</div>
+</header>
+<details><summary>기준·주의사항</summary><ul id="notes"></ul></details>
+<div class="wrap"><table id="t"><thead></thead><tbody></tbody></table></div>
+<div id="pop"></div>
+<script>
+const COLS=[
+["no","순서"],["name","종목"],["market","시장"],["mcap","시가총액(억)"],
+["f1","외국인 7/30~8/31(억)"],["f2","외국인 9월(억)"],["f3","외국인 10/1~10/18(억)"],["f4","외국인 최근 4구간(억)"],
+["cum","외국인 누적(억)"],["ratio","누적÷시총(%)"],["ret_since","7/29 대비(%)"],["ret_4w","최근 4주(%)"],["rank","전종목 상승률 순위"],["code","코드"],
+["verdict","판정"],["rsi","RSI"],["macd","MACD"],["gap","이격도(20일,%)"],["ma20","20일선"],["ma50","50일선"],["r1","최근 1주(%)"],["r2","최근 2주(%)"],["news","4주간 호재·악재"]];
+const NUM=new Set(["no","mcap","f1","f2","f3","f4","cum","ratio","ret_since","ret_4w","rank","rsi","gap","r1","r2"]);
+const SIGNED=new Set(["ret_since","ret_4w","r1","r2","cum","f1","f2","f3","f4"]);
+const TEXT=new Set(["name","market","code","verdict","macd","ma20","ma50","news"]);
+let DATA=[],ROWS=[],filters={},sortKey=null,sortDir=1;
+const $=s=>document.querySelector(s);
+const fmt=(k,v)=>{if(v==null)return"";if(NUM.has(k)&&typeof v==="number"){const d=["ratio","rsi","gap"].includes(k)?2:(["mcap","rank","no"].includes(k)?0:1);return v.toLocaleString("ko-KR",{minimumFractionDigits:k==="rsi"?1:d,maximumFractionDigits:d})}return v};
+async function load(d){
+ const r=await fetch("data/"+d+".json?"+Date.now());const j=await r.json();
+ ROWS=j.rows.map((x,i)=>({...x,no:i+1}));
+ $("#meta").textContent=`기준일 ${j.meta.asof} 종가 · 갱신 ${j.meta.updated} · 구간 ${j.meta.windows.join(" / ")}`;
+ $("#notes").innerHTML=j.meta.notes.map(n=>`<li>${n}</li>`).join("");
+ filters={};sortKey=null;head();render();
+}
+function head(){
+ $("#t thead").innerHTML="<tr>"+COLS.map(([k,l])=>`<th data-k="${k}" class="${TEXT.has(k)&&k!=="verdict"?"l":""}">${l} ▾</th>`).join("")+"</tr>";
+ document.querySelectorAll("th").forEach(th=>th.onclick=e=>{e.stopPropagation();openPop(th)});
+}
+function visible(){
+ return ROWS.filter(r=>Object.entries(filters).every(([k,set])=>set.has(String(r[k]))));
+}
+function render(){
+ let v=visible();
+ if(sortKey){v=[...v].sort((a,b)=>{const x=a[sortKey],y=b[sortKey];return (NUM.has(sortKey)?(x-y):String(x).localeCompare(String(y),"ko"))*sortDir})}
+ $("#cnt").textContent=`(${v.length}/${ROWS.length}종목)`;
+ $("#t tbody").innerHTML=v.map(r=>"<tr>"+COLS.map(([k])=>{
+  let c=k==="news"?"news":(TEXT.has(k)?"l":"");
+  if(SIGNED.has(k)&&["ret_since","ret_4w","r1","r2"].includes(k))c+=r[k]>0?" pos":r[k]<0?" neg":"";
+  if(k==="verdict")c+=" v-"+r.verdict;
+  return `<td class="${c}">${fmt(k,r[k])}</td>`}).join("")+"</tr>").join("");
+ document.querySelectorAll("th").forEach(th=>th.classList.toggle("on",!!filters[th.dataset.k]||th.dataset.k===sortKey));
+}
+function openPop(th){
+ const k=th.dataset.k,p=$("#pop");
+ const vals=[...new Set(ROWS.map(r=>String(r[k])))];
+ if(NUM.has(k))vals.sort((a,b)=>a-b);else vals.sort((a,b)=>a.localeCompare(b,"ko"));
+ const cur=filters[k]||new Set(vals);
+ const showVals=k==="news"?[]:vals;
+ p.innerHTML=`<div class="row"><button data-s="1">오름차순</button><button data-s="-1">내림차순</button></div>
+ ${k==="news"?'<div class="sub" style="margin:6px 0">뉴스 컬럼은 정렬만 지원</div>':`<input type="text" placeholder="검색" id="q"><div class="list" id="l"></div>
+ <div class="row"><button id="all">전체</button><button id="none">없음</button><button id="ok">확인</button></div>`}`;
+ const list=p.querySelector("#l");
+ if(list){
+  const draw=q=>{list.innerHTML=showVals.filter(v=>v.includes(q)).map(v=>`<label><input type="checkbox" value="${v.replace(/"/g,"&quot;")}" ${cur.has(v)?"checked":""}> ${v||"(빈 값)"}</label>`).join("")};
+  draw("");p.querySelector("#q").oninput=e=>draw(e.target.value);
+  p.querySelector("#all").onclick=()=>list.querySelectorAll("input").forEach(i=>i.checked=true);
+  p.querySelector("#none").onclick=()=>list.querySelectorAll("input").forEach(i=>i.checked=false);
+  p.querySelector("#ok").onclick=()=>{
+   const shown=new Set([...list.querySelectorAll("input")].map(i=>i.value));
+   const chk=new Set([...list.querySelectorAll("input:checked")].map(i=>i.value));
+   const next=new Set([...cur].filter(v=>!shown.has(v)));chk.forEach(v=>next.add(v));
+   if(next.size===vals.length)delete filters[k];else filters[k]=next;
+   p.style.display="none";render()};
+ }
+ p.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{sortKey=k;sortDir=+b.dataset.s;p.style.display="none";render()});
+ const r=th.getBoundingClientRect();p.style.display="block";
+ p.style.left=Math.min(r.left,innerWidth-240)+"px";p.style.top=Math.min(r.bottom,innerHeight-340)+"px";
+}
+document.addEventListener("click",e=>{if(!$("#pop").contains(e.target))$("#pop").style.display="none"});
+$("#clear").onclick=()=>{filters={};sortKey=null;render()};
+fetch("data/index.json?"+Date.now()).then(r=>r.json()).then(ds=>{
+ ds.sort().reverse();$("#date").innerHTML=ds.map(d=>`<option>${d}</option>`).join("");
+ $("#date").onchange=e=>load(e.target.value);load(ds[0]);
+});
+</script>
+</body>
+</html>
