@@ -21,9 +21,12 @@ th{position:sticky;top:0;background:var(--bg);z-index:3;cursor:pointer;text-alig
 th.on{background:#d7e8ff}
 td.l,th.l{text-align:left}
 td.news{white-space:normal;min-width:380px;max-width:520px;text-align:left;vertical-align:top;font-size:12px}
-th:nth-child(2),td:nth-child(2){position:sticky;left:0;z-index:2;background:inherit}
-th:nth-child(2){z-index:4;background:var(--bg)}
-td:nth-child(2){background:#fff;font-weight:700;text-align:left}
+th:nth-child(2),td:nth-child(2){position:sticky;left:0;z-index:2;min-width:38px;width:38px}
+th:nth-child(3),td:nth-child(3){position:sticky;left:38px;z-index:2}
+th:nth-child(2),th:nth-child(3){z-index:4;background:var(--bg)}
+td:nth-child(3){background:#fff;font-weight:700;text-align:left}
+td.star{text-align:center;cursor:pointer;font-size:16px;color:#bbb;user-select:none}
+td.star.on{color:#f5a623}
 td.pos{color:#c62828}td.neg{color:#1565c0}
 .v-지속{background:#c6efce!important}.v-지속·과열{background:#ffd8a8!important}.v-둔화{background:#fff2b3!important}.v-횡보{background:#e0e0e0!important}.v-꺾임{background:#f8c9c9!important}
 #pop{position:fixed;display:none;z-index:10;background:#fff;border:1px solid #aaa;border-radius:6px;box-shadow:0 4px 14px #0003;width:230px;padding:8px}
@@ -40,6 +43,7 @@ details{padding:6px 12px;font-size:12px;color:var(--mut)}
 <div class="sub" id="meta"></div>
 <div class="bar">
 <label>기준일 <select id="date"></select></label>
+<button id="onlystar">★ 관심종목만</button>
 <button id="clear">필터 해제</button>
 <span class="sub">헤더를 누르면 엑셀처럼 정렬·값 필터</span>
 </div>
@@ -49,19 +53,21 @@ details{padding:6px 12px;font-size:12px;color:var(--mut)}
 <div id="pop"></div>
 <script>
 const COLS=[
-["no","순서"],["name","종목"],["market","시장"],["mcap","시가총액(억)"],
+["no","순서"],["star","★"],["name","종목"],["market","시장"],["mcap","시가총액(억)"],
 ["f1","외국인 7/30~8/31(억)"],["f2","외국인 9월(억)"],["f3","외국인 10/1~10/18(억)"],["f4","외국인 최근 4구간(억)"],
 ["cum","외국인 누적(억)"],["ratio","누적÷시총(%)"],["ret_since","7/29 대비(%)"],["ret_4w","최근 4주(%)"],["rank","전종목 상승률 순위"],["code","코드"],
 ["verdict","판정"],["rsi","RSI"],["macd","MACD"],["gap","이격도(20일,%)"],["ma20","20일선"],["ma50","50일선"],["r1","최근 1주(%)"],["r2","최근 2주(%)"],["news","4주간 호재·악재"]];
 const NUM=new Set(["no","mcap","f1","f2","f3","f4","cum","ratio","ret_since","ret_4w","rank","rsi","gap","r1","r2"]);
 const SIGNED=new Set(["ret_since","ret_4w","r1","r2","cum","f1","f2","f3","f4"]);
-const TEXT=new Set(["name","market","code","verdict","macd","ma20","ma50","news"]);
+const TEXT=new Set(["star","name","market","code","verdict","macd","ma20","ma50","news"]);
+let WL=new Set();try{WL=new Set(JSON.parse(localStorage.getItem("wl")||"[]"))}catch(e){}
+const saveWL=()=>{try{localStorage.setItem("wl",JSON.stringify([...WL]))}catch(e){}};
 let DATA=[],ROWS=[],filters={},sortKey=null,sortDir=1;
 const $=s=>document.querySelector(s);
 const fmt=(k,v)=>{if(v==null)return"";if(NUM.has(k)&&typeof v==="number"){const d=["ratio","rsi","gap"].includes(k)?2:(["mcap","rank","no"].includes(k)?0:1);return v.toLocaleString("ko-KR",{minimumFractionDigits:k==="rsi"?1:d,maximumFractionDigits:d})}return v};
 async function load(d){
  const r=await fetch("data/"+d+".json?"+Date.now());const j=await r.json();
- ROWS=j.rows.map((x,i)=>({...x,no:i+1}));
+ ROWS=j.rows.map((x,i)=>({...x,no:i+1,star:WL.has(x.code)?"★":""}));
  $("#meta").textContent=`기준일 ${j.meta.asof} 종가 · 갱신 ${j.meta.updated} · 구간 ${j.meta.windows.join(" / ")}`;
  $("#notes").innerHTML=j.meta.notes.map(n=>`<li>${n}</li>`).join("");
  filters={};sortKey=null;head();render();
@@ -81,6 +87,7 @@ function render(){
   let c=k==="news"?"news":(TEXT.has(k)?"l":"");
   if(SIGNED.has(k)&&["ret_since","ret_4w","r1","r2"].includes(k))c+=r[k]>0?" pos":r[k]<0?" neg":"";
   if(k==="verdict")c+=" v-"+r.verdict;
+  if(k==="star")return `<td class="star${r.star?" on":""}" data-c="${r.code}">${r.star?"★":"☆"}</td>`;
   return `<td class="${c}">${fmt(k,r[k])}</td>`}).join("")+"</tr>").join("");
  document.querySelectorAll("th").forEach(th=>th.classList.toggle("on",!!filters[th.dataset.k]||th.dataset.k===sortKey));
 }
@@ -111,6 +118,8 @@ function openPop(th){
  p.style.left=Math.min(r.left,innerWidth-240)+"px";p.style.top=Math.min(r.bottom,innerHeight-340)+"px";
 }
 document.addEventListener("click",e=>{if(!$("#pop").contains(e.target))$("#pop").style.display="none"});
+$("#t tbody").addEventListener("click",e=>{const td=e.target.closest("td.star");if(!td)return;const c=td.dataset.c;WL.has(c)?WL.delete(c):WL.add(c);saveWL();ROWS.forEach(r=>{if(r.code===c)r.star=WL.has(c)?"★":""});render()});
+$("#onlystar").onclick=()=>{if(filters.star){delete filters.star}else{filters.star=new Set(["★"])}render()};
 $("#clear").onclick=()=>{filters={};sortKey=null;render()};
 fetch("data/index.json?"+Date.now()).then(r=>r.json()).then(ds=>{
  ds.sort().reverse();$("#date").innerHTML=ds.map(d=>`<option>${d}</option>`).join("");
